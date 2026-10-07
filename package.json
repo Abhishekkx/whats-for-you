@@ -10,6 +10,7 @@
     "test": "npx tsx tests/engine.test.ts && npx tsx tests/sample_e2e.test.ts"
   },
   "dependencies": {
+    "@vercel/speed-insights": "^2.0.0",
     "clsx": "^2.1.1",
     "lucide-react": "^0.475.0",
     "next": "14.2.24",

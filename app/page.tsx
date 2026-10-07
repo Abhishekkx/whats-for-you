@@ -361,7 +361,6 @@ export default function HomePage() {
                     grade={analysis.grade}
                     monthlyInHand={analysis.inHand.monthlyInHandFixed}
                     trapCount={analysis.traps.length}
-                    verdict={analysis.verdict}
                   />
                 )}
               </div>

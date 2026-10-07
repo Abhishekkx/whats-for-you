@@ -15,7 +15,7 @@ function getProviderDefaults(provider: string): { baseUrl: string; model: string
     case 'gemini':
       return {
         baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
-        model: 'gemini-3.8-flash',
+        model: 'gemini-2.5-flash',
       };
     case 'groq':
       return {
@@ -63,22 +63,37 @@ function getFallbackConfig(): LLMConfig | null {
 
 async function callOpenAICompatible(config: LLMConfig, system: string, user: string): Promise<any> {
   const endpoint = `${config.baseUrl}/chat/completions`;
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${config.apiKey}`,
-    },
-    body: JSON.stringify({
-      model: config.model,
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: user },
-      ],
-      response_format: { type: 'json_object' },
-      temperature: 0.1,
-    }),
-  });
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${config.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: config.model,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: user },
+        ],
+        response_format: { type: 'json_object' },
+        temperature: 0.1,
+      }),
+      signal: AbortSignal.timeout(25000),
+    });
+  } catch (err: any) {
+    if (
+      err.name === 'AbortError' ||
+      err.name === 'TimeoutError' ||
+      err.message?.toLowerCase().includes('timeout') ||
+      err.message?.toLowerCase().includes('aborted')
+    ) {
+      console.warn(`[whatsforyou] LLM request timed out after 25s (${config.provider})`);
+      throw new Error(`LLM request timed out after 25s (${config.provider})`);
+    }
+    throw err;
+  }
 
   if (!response.ok) {
     const errText = await response.text();
@@ -129,16 +144,16 @@ export async function chatJson(system: string, user: string): Promise<any> {
     const result = await callOpenAICompatible(primary, system, user);
     cache.set(hash, result);
     return result;
-  } catch (primaryErr1) {
-    console.warn(`[whatsforyou] Primary LLM 1st attempt failed:`, primaryErr1);
+  } catch (primaryErr1: any) {
+    console.warn(`[whatsforyou] Primary LLM 1st attempt failed:`, primaryErr1?.message || primaryErr1);
 
     // 2nd attempt: Retry primary once
     try {
       const result = await callOpenAICompatible(primary, system, user);
       cache.set(hash, result);
       return result;
-    } catch (primaryErr2) {
-      console.warn(`[whatsforyou] Primary LLM retry failed:`, primaryErr2);
+    } catch (primaryErr2: any) {
+      console.warn(`[whatsforyou] Primary LLM retry failed:`, primaryErr2?.message || primaryErr2);
 
       // Fallback provider attempt
       const fallback = getFallbackConfig();
@@ -147,12 +162,12 @@ export async function chatJson(system: string, user: string): Promise<any> {
           const result = await callOpenAICompatible(fallback, system, user);
           cache.set(hash, result);
           return result;
-        } catch (fallbackErr) {
-          console.error(`[whatsforyou] Fallback LLM failed:`, fallbackErr);
+        } catch (fallbackErr: any) {
+          console.error(`[whatsforyou] Fallback LLM failed:`, fallbackErr?.message || fallbackErr);
         }
       }
 
-      // If all LLM calls fail, return heuristic extraction rather than blocking user
+      // If all LLM calls fail or time out, return heuristic extraction rather than blocking user
       console.warn('[whatsforyou] Falling back to heuristic text extractor.');
       return fallbackHeuristicExtraction(user);
     }
@@ -165,6 +180,7 @@ export async function chatJson(system: string, user: string): Promise<any> {
 function fallbackHeuristicExtraction(userText: string): any {
   const letter = userText.split('---').slice(1, -1).join('---').toLowerCase();
   return {
+    isHeuristic: true,
     employment_type: /intern|stipend|trainee/.test(letter) ? 'internship' : null,
     compensation_found: false,
     evidence: {},

@@ -124,6 +124,7 @@ export async function POST(req: NextRequest) {
                 maxOutputTokens: 4096,
               },
             }),
+            signal: AbortSignal.timeout(25000),
           });
 
           if (visionResponse.ok) {
@@ -254,7 +255,7 @@ export async function POST(req: NextRequest) {
         .map(([field]) => typeof evidence[field] === 'string' ? `Compensation: ${evidence[field]}` : ''),
     ].filter(Boolean))).slice(0, 5);
     // Determine if we should mark results as "partial analysis"
-    const aiUnavailable = !aiSummaryAvailable;
+    const aiUnavailable = !aiSummaryAvailable || Boolean(llmResponse?.isHeuristic);
 
     const response: Record<string, any> = {
       success: true,
@@ -274,10 +275,8 @@ export async function POST(req: NextRequest) {
         piiRedactedCount: itemsRedactedCount,
         characterCount: redactedText.length,
         analyzedAt: new Date().toISOString(),
-        // NEW: flag whether AI summary is available
-        aiSummaryAvailable: aiUnavailable ? false : true,
+        aiSummaryAvailable: !aiUnavailable,
       },
-      // NEW: transparency flag
       analysisMode: aiUnavailable ? 'deterministic-only' : 'ai-enhanced',
     };
     if (new URL(req.url).searchParams.get('debug') === '1') {
